@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">CloudDrop</string>
+    <string name="share_receiver_label">Tải lên CloudDrop</string>
+    <string name="app_tagline">Chia sẻ nhanh lên đám mây kèm liên kết &amp; mã QR</string>
+
+    <!-- Navigation -->
+    <string name="nav_upload">Tải lên</string>
+    <string name="nav_history">Lịch sử</string>
+    <string name="nav_cloud">Dịch vụ Cloud</string>
+
+    <!-- Upload screen -->
+    <string name="hero_title">Chia sẻ tệp tức thì từ bất kỳ ứng dụng nào</string>
+    <string name="hero_subtitle">Nhấn nút Chia sẻ ở Ảnh, Tệp hoặc Trình duyệt rồi chọn CloudDrop — tự động chọn máy chủ phù hợp và tạo mã QR.</string>
+    <string name="action_pick_media">Ảnh / Video</string>
+    <string name="action_pick_file">Tệp bất kỳ</string>
+    <string name="action_quick_text">Gửi văn bản</string>
+    <string name="section_quick_upload">Tải lên trực tiếp</string>
+    <string name="section_retention">Thời hạn lưu trữ mong muốn</string>
+    <string name="section_server_mode">Máy chủ tải lên</string>
+    <string name="server_auto">Tự động chọn tối ưu</string>
+    <string name="retention_auto">Tự động (24 giờ)</string>
+    <string name="retention_1h">1 giờ</string>
+    <string name="retention_12h">12 giờ</string>
+    <string name="retention_24h">24 giờ</string>
+    <string name="retention_72h">72 giờ</string>
+    <string name="retention_permanent">Lưu lâu dài</string>
+
+    <!-- Upload progress & states -->
+    <string name="status_preparing">Đang đọc thông tin tệp…</string>
+    <string name="status_selecting_server">Đang kiểm tra và chọn máy chủ phù hợp…</string>
+    <string name="status_uploading">Đang tải lên %1$s…</string>
+    <string name="status_retrying">Thử chuyển sang máy chủ dự phòng %1$s…</string>
+    <string name="status_success">Tải lên thành công</string>
+    <string name="status_failed">Không thể tải lên</string>
+    <string name="action_cancel_upload">Hủy tải lên</string>
+    <string name="action_retry_upload">Thử lại</string>
+    <string name="action_upload_now">Tải lên ngay</string>
+    <string name="action_upload_another">Tải tệp khác</string>
+    <string name="action_copy_link">Sao chép link</string>
+    <string name="action_copied">Đã sao chép liên kết</string>
+    <string name="action_share_link">Chia sẻ link</string>
+    <string name="action_share_qr">Chia sẻ mã QR</string>
+    <string name="action_open_link">Mở liên kết</string>
+    <string name="action_zoom_qr">Phóng to mã QR</string>
+    <string name="action_open_full_app">Mở trong ứng dụng</string>
+    <string name="action_close">Đóng</string>
+    <string name="action_save">Lưu</string>
+    <string name="action_delete">Xóa</string>
+    <string name="qr_scan_hint">Quét mã QR bằng camera để tải tệp ngay</string>
+    <string name="no_network_error">Không có kết nối mạng. Vui lòng kiểm tra Wi-Fi hoặc dữ liệu di động.</string>
+    <string name="no_compatible_server">Không có máy chủ nào phù hợp với dung lượng hoặc loại tệp này.</string>
+
+    <!-- Quick text dialog -->
+    <string name="quick_text_title">Tạo liên kết từ văn bản</string>
+    <string name="quick_text_filename_label">Tên tệp (.txt)</string>
+    <string name="quick_text_content_label">Nội dung cần chia sẻ</string>
+    <string name="quick_text_placeholder">Dán ghi chú, đoạn mã hoặc nội dung cần chia sẻ nhanh…</string>
+
+    <!-- History screen -->
+    <string name="history_title">Lịch sử chia sẻ</string>
+    <string name="history_search_hint">Tìm theo tên tệp hoặc máy chủ…</string>
+    <string name="history_empty_title">Chưa có tệp nào được tải lên</string>
+    <string name="history_empty_subtitle">Chọn tệp ở tab Tải lên hoặc dùng nút Chia sẻ từ ứng dụng khác để gửi vào CloudDrop.</string>
+    <string name="filter_all">Tất cả</string>
+    <string name="filter_images">Hình ảnh</string>
+    <string name="filter_videos">Video</string>
+    <string name="filter_files">Tệp khác</string>
+    <string name="history_clear_all">Xóa lịch sử</string>
+    <string name="history_clear_confirm_title">Xóa toàn bộ lịch sử?</string>
+    <string name="history_clear_confirm_body">Thao tác này chỉ xóa danh sách đã lưu trên máy, không xóa tệp đã tải lên máy chủ.</string>
+
+    <!-- Cloud Services screen -->
+    <string name="cloud_title">Dịch vụ Cloud &amp; Cài đặt</string>
+    <string name="cloud_probe_all">Đo độ trễ máy chủ</string>
+    <string name="cloud_probing">Đang đo thực tế…</string>
+    <string name="cloud_latency_unmeasured">Chưa đo</string>
+    <string name="cloud_latency_offline">Không phản hồi</string>
+    <string name="cloud_section_behavior">Hành vi khi nhận chia sẻ</string>
+    <string name="cloud_auto_upload_title">Tự động tải lên ngay khi chia sẻ</string>
+    <string name="cloud_auto_upload_subtitle">Mở pop-up và gửi ngay tới máy chủ tối ưu mà không cần bấm thêm bước xác nhận.</string>
+    <string name="cloud_popup_mode_title">Hiện bảng pop-up nổi</string>
+    <string name="cloud_popup_mode_subtitle">Bật để hiện bảng gọn trên ứng dụng hiện tại; tắt để mở thẳng vào giao diện đầy đủ.</string>
+    <string name="cloud_section_providers">Máy chủ liên kết</string>
+    <string name="cloud_configure">Cấu hình</string>
+    <string name="cloud_configured">Đã liên kết</string>
+    <string name="cloud_ready_no_key">Sẵn sàng (không cần khóa)</string>
+    <string name="cloud_needs_setup">Chưa cấu hình</string>
+    <string name="cloud_config_api_key">API Key / Token (tùy chọn)</string>
+    <string name="cloud_config_endpoint">URL máy chủ tải lên (HTTPS)</string>
+    <string name="cloud_config_field">Tên trường tệp (multipart field)</string>
+    <string name="cloud_config_auth_header">Header Authorization (tùy chọn)</string>
+    <string name="cloud_config_json_path">Đường dẫn JSON chứa link (để trống nếu trả text)</string>
+
+    <!-- Content descriptions -->
+    <string name="cd_qr_code">Mã QR dẫn tới tệp đã tải lên</string>
+    <string name="cd_file_preview">Ảnh xem trước tệp</string>
+    <string name="cd_hero_banner">Minh họa chia sẻ tệp lên đám mây và tạo mã QR</string>
+    <string name="cd_copy_link">Sao chép liên kết</string>
+    <string name="cd_share_link">Chia sẻ liên kết</string>
+    <string name="cd_close_popup">Đóng bảng chia sẻ</string>
+    <string name="cd_delete_item">Xóa mục khỏi lịch sử</string>
+</resources>

@@ -1,0 +1,6 @@
+{
+  "name": "CloudDrop",
+  "description": "Chia sẻ tệp, ảnh, video lên đám mây trực tiếp từ nút Chia sẻ, tự động chọn máy chủ tối ưu và tạo liên kết kèm mã QR.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
