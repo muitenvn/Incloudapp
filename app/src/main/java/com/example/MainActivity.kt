@@ -18,12 +18,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -45,6 +47,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.ui.components.InstantQrGeneratorDialog
 import com.example.ui.screens.CloudServicesScreen
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.UploadScreen
@@ -119,6 +122,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun CloudDropAppShell(viewModel: MainViewModel) {
     var activeTab by rememberSaveable { mutableStateOf(MainTab.UPLOAD) }
+    var showQuickQrDialog by rememberSaveable { mutableStateOf(false) }
     val uploadState by viewModel.uploadState.collectAsStateWithLifecycle()
     val historyItems by viewModel.historyItems.collectAsStateWithLifecycle()
     val preferences by viewModel.preferences.collectAsStateWithLifecycle()
@@ -147,6 +151,18 @@ private fun CloudDropAppShell(viewModel: MainViewModel) {
                             style = MaterialTheme.typography.titleLarge,
                             color = MaterialTheme.colorScheme.onBackground
                         )
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = { showQuickQrDialog = true },
+                            modifier = Modifier.testTag("top_bar_quick_qr_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.QrCode2,
+                                contentDescription = stringResource(R.string.quick_qr_title),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                         containerColor = MaterialTheme.colorScheme.background
@@ -255,5 +271,9 @@ private fun CloudDropAppShell(viewModel: MainViewModel) {
                 }
             }
         }
+    }
+
+    if (showQuickQrDialog) {
+        InstantQrGeneratorDialog(onDismiss = { showQuickQrDialog = false })
     }
 }

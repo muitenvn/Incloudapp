@@ -508,3 +508,137 @@ fun openUrlInBrowser(context: Context, url: String) {
         Toast.makeText(context, "Không tìm thấy trình duyệt để mở liên kết.", Toast.LENGTH_SHORT).show()
     }
 }
+
+@Composable
+fun InstantQrGeneratorDialog(
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var contentText by remember { mutableStateOf("") }
+    var qrBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+
+    LaunchedEffect(contentText) {
+        val clean = contentText.trim()
+        qrBitmap = if (clean.isEmpty()) {
+            null
+        } else {
+            withContext(Dispatchers.Default) {
+                QrCodeGenerator.generateQrBitmap(clean, sizePx = 760)
+            }
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp)
+                .widthIn(max = 460.dp),
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.quick_qr_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.testTag("close_quick_qr_dialog")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = stringResource(R.string.action_close)
+                        )
+                    }
+                }
+
+                androidx.compose.material3.OutlinedTextField(
+                    value = contentText,
+                    onValueChange = { contentText = it },
+                    label = { Text(stringResource(R.string.quick_qr_input_label)) },
+                    placeholder = { Text(stringResource(R.string.quick_qr_placeholder)) },
+                    maxLines = 3,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("quick_qr_input")
+                )
+
+                Box(
+                    modifier = Modifier
+                        .size(220.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(if (qrBitmap != null) Color.White else MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(14.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val bmp = qrBitmap
+                    if (bmp != null) {
+                        Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = stringResource(R.string.cd_qr_code),
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxWidth().aspectRatio(1f)
+                        )
+                    } else {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.QrCode2,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(44.dp)
+                            )
+                            Text(
+                                text = stringResource(R.string.quick_qr_live_hint),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+
+                if (contentText.isNotBlank()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(
+                            onClick = { copyLinkToClipboard(context, contentText.trim()) },
+                            modifier = Modifier.weight(1f).height(48.dp)
+                        ) {
+                            Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(stringResource(R.string.action_copy_link))
+                        }
+                        OutlinedButton(
+                            onClick = { shareQrImage(context, contentText.trim(), "CloudDrop QR") },
+                            modifier = Modifier.weight(1f).height(48.dp)
+                        ) {
+                            Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(stringResource(R.string.action_share_qr))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

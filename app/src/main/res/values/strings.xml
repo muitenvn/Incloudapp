@@ -100,4 +100,8 @@
     <string name="cd_share_link">Chia sẻ liên kết</string>
     <string name="cd_close_popup">Đóng bảng chia sẻ</string>
     <string name="cd_delete_item">Xóa mục khỏi lịch sử</string>
+    <string name="quick_qr_title">Tạo mã QR quét nhanh</string>
+    <string name="quick_qr_input_label">Nhập hoặc dán liên kết / nội dung</string>
+    <string name="quick_qr_placeholder">https://… hoặc văn bản bất kỳ</string>
+    <string name="quick_qr_live_hint">Mã QR được tự động tạo ngay khi bạn nhập hoặc dán nội dung</string>
 </resources>
