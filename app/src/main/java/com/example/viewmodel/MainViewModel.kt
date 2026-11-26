@@ -12,6 +12,10 @@ import com.example.data.model.RetentionPreference
 import com.example.data.model.SharedFilePayload
 import com.example.data.model.UploadUiState
 import com.example.data.model.UploadedItemEntity
+import com.example.update.AppUpdateManager
+import com.example.update.AppUpdateState
+import com.example.update.ReleaseUpdateInfo
+import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +33,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: CloudDropRepository =
         (application as CloudDropApplication).repository
+
+    val updateManager: AppUpdateManager =
+        (application as CloudDropApplication).updateManager
 
     val historyItems: StateFlow<List<UploadedItemEntity>> = repository.historyFlow
         .stateIn(
@@ -64,7 +71,173 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _historyFilter = MutableStateFlow(HistoryFilter.ALL)
     val historyFilter: StateFlow<HistoryFilter> = _historyFilter.asStateFlow()
 
+    private val _updateState = MutableStateFlow<AppUpdateState>(AppUpdateState.Idle)
+    val updateState: StateFlow<AppUpdateState> = _updateState.asStateFlow()
+
+    private val _pendingInstallApk = MutableStateFlow<File?>(null)
+    val pendingInstallApk: StateFlow<File?> = _pendingInstallApk.asStateFlow()
+
     private var activeUploadJob: Job? = null
+    private var updateJob: Job? = null
+    private var didAutoCheckUpdates = false
+
+    fun checkForUpdatesOnAppOpen() {
+        if (didAutoCheckUpdates) return
+        didAutoCheckUpdates = true
+        viewModelScope.launch {
+            val prefs = repository.preferencesRepository.currentPreferences()
+            if (!prefs.autoCheckUpdates) return@launch
+            val repo = updateManager.resolveRepoSlug(prefs.updateRepoOverride)
+            if (repo.isEmpty()) return@launch
+            checkForUpdates(manual = false)
+        }
+    }
+
+    fun checkForUpdates(manual: Boolean) {
+        updateJob?.cancel()
+        updateJob = viewModelScope.launch {
+            _updateState.value = AppUpdateState.Checking(isManual = manual)
+            try {
+                val prefs = repository.preferencesRepository.currentPreferences()
+                val repoSlug = updateManager.resolveRepoSlug(prefs.updateRepoOverride)
+                if (repoSlug.isEmpty()) {
+                    _updateState.value = if (manual) {
+                        AppUpdateState.Error(
+                            message = "Chưa liên kết kho GitHub. Hãy cài APK từ GitHub Releases hoặc nhập tên repo (vd: ten_ban/CloudDrop) trong mục Nguồn GitHub.",
+                            isManual = true
+                        )
+                    } else {
+                        AppUpdateState.Idle
+                    }
+                    return@launch
+                }
+
+                val latest = updateManager.checkLatestRelease(repoSlug)
+                if (latest == null) {
+                    _updateState.value = if (manual) {
+                        AppUpdateState.UpToDate(
+                            latestTag = null,
+                            currentVersionLabel = updateManager.currentVersionDisplay(),
+                            isManual = true
+                        )
+                    } else {
+                        AppUpdateState.Idle
+                    }
+                    return@launch
+                }
+
+                if (updateManager.isRemoteNewer(latest.tagName)) {
+                    _updateState.value = AppUpdateState.UpdateAvailable(
+                        release = latest,
+                        showDialog = true
+                    )
+                } else {
+                    _updateState.value = AppUpdateState.UpToDate(
+                        latestTag = latest.tagName,
+                        currentVersionLabel = updateManager.currentVersionDisplay(),
+                        isManual = manual
+                    )
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (e: Exception) {
+                _updateState.value = if (manual) {
+                    AppUpdateState.Error(
+                        message = e.message ?: "Không thể kiểm tra bản cập nhật từ GitHub.",
+                        isManual = true
+                    )
+                } else {
+                    AppUpdateState.Idle
+                }
+            }
+        }
+    }
+
+    fun downloadUpdate(release: ReleaseUpdateInfo, onReadyToInstall: (File) -> Unit) {
+        updateJob?.cancel()
+        updateJob = viewModelScope.launch {
+            _updateState.value = AppUpdateState.Downloading(
+                release = release,
+                bytesDownloaded = 0L,
+                totalBytes = release.apkSizeBytes,
+                bytesPerSecond = 0L
+            )
+            try {
+                val apkFile = updateManager.downloadApk(release) { downloaded, total, speed ->
+                    _updateState.value = AppUpdateState.Downloading(
+                        release = release,
+                        bytesDownloaded = downloaded,
+                        totalBytes = total,
+                        bytesPerSecond = speed
+                    )
+                }
+                val needsPerm = !updateManager.canInstallPackages()
+                _pendingInstallApk.value = apkFile
+                _updateState.value = AppUpdateState.ReadyToInstall(
+                    release = release,
+                    apkFile = apkFile,
+                    needsInstallPermission = needsPerm
+                )
+                onReadyToInstall(apkFile)
+            } catch (ce: CancellationException) {
+                _updateState.value = AppUpdateState.UpdateAvailable(release = release, showDialog = true)
+            } catch (e: Exception) {
+                _updateState.value = AppUpdateState.Error(
+                    message = e.message ?: "Tải tệp cập nhật APK thất bại.",
+                    isManual = true,
+                    release = release
+                )
+            }
+        }
+    }
+
+    fun cancelUpdateDownload() {
+        updateJob?.cancel()
+        updateJob = null
+        _updateState.value = AppUpdateState.Idle
+    }
+
+    fun dismissUpdateDialog() {
+        val current = _updateState.value
+        _updateState.value = when (current) {
+            is AppUpdateState.UpdateAvailable -> current.copy(showDialog = false)
+            is AppUpdateState.Downloading -> current
+            else -> AppUpdateState.Idle
+        }
+    }
+
+    fun markNeedsInstallPermission(apkFile: File) {
+        val current = _updateState.value
+        if (current is AppUpdateState.ReadyToInstall) {
+            _pendingInstallApk.value = apkFile
+            _updateState.value = current.copy(needsInstallPermission = true)
+        }
+    }
+
+    fun markInstallPermissionGranted() {
+        val current = _updateState.value
+        if (current is AppUpdateState.ReadyToInstall) {
+            _updateState.value = current.copy(needsInstallPermission = false)
+        }
+    }
+
+    fun clearPendingInstallApk() {
+        _pendingInstallApk.value = null
+    }
+
+    fun setAutoCheckUpdates(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.preferencesRepository.setAutoCheckUpdates(enabled)
+        }
+    }
+
+    fun setUpdateRepoOverride(repoSlug: String) {
+        viewModelScope.launch {
+            repository.preferencesRepository.setUpdateRepoOverride(
+                updateManager.sanitizeRepoSlug(repoSlug)
+            )
+        }
+    }
 
     fun setSessionRetention(retention: RetentionPreference) {
         _selectedRetention.value = retention

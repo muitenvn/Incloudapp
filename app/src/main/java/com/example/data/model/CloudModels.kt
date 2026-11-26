@@ -226,7 +226,9 @@ data class CloudAppPreferences(
     val customEndpointUrl: String = "",
     val customFieldName: String = "file",
     val customAuthHeader: String = "",
-    val customJsonUrlPath: String = "url"
+    val customJsonUrlPath: String = "url",
+    val autoCheckUpdates: Boolean = true,
+    val updateRepoOverride: String = ""
 ) {
     fun isProviderEnabled(providerId: CloudProviderId): Boolean =
         providerId.id !in disabledProviders

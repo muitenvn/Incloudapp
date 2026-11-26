@@ -17,8 +17,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -49,13 +52,20 @@ import com.example.data.model.CloudProviderId
 import com.example.data.model.CloudProviderSpec
 import com.example.data.model.ProviderHealth
 import com.example.ui.theme.JetBrainsMonoFamily
+import com.example.update.AppUpdateState
 
 @Composable
 fun CloudServicesScreen(
     preferences: CloudAppPreferences,
     providerHealth: Map<CloudProviderId, ProviderHealth>,
     isProbing: Boolean,
+    currentVersionLabel: String,
+    resolvedUpdateRepo: String,
+    updateState: AppUpdateState,
     onProbeAll: () -> Unit,
+    onCheckUpdatesNow: () -> Unit,
+    onAutoCheckUpdatesChange: (Boolean) -> Unit,
+    onSaveUpdateRepo: (String) -> Unit,
     onAutoUploadChange: (Boolean) -> Unit,
     onPopupModeChange: (Boolean) -> Unit,
     onToggleProvider: (CloudProviderId, Boolean) -> Unit,
@@ -64,6 +74,7 @@ fun CloudServicesScreen(
     modifier: Modifier = Modifier
 ) {
     var editingProvider by remember { mutableStateOf<CloudProviderSpec?>(null) }
+    var showRepoDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -146,6 +157,19 @@ fun CloudServicesScreen(
             }
         }
 
+        // App Auto-Update section
+        item {
+            AppUpdateSettingsCard(
+                currentVersionLabel = currentVersionLabel,
+                resolvedUpdateRepo = resolvedUpdateRepo,
+                autoCheckEnabled = preferences.autoCheckUpdates,
+                updateState = updateState,
+                onAutoCheckChange = onAutoCheckUpdatesChange,
+                onCheckNow = onCheckUpdatesNow,
+                onConfigureRepo = { showRepoDialog = true }
+            )
+        }
+
         item {
             Text(
                 text = stringResource(R.string.cloud_section_providers),
@@ -197,6 +221,195 @@ fun CloudServicesScreen(
             )
         }
     }
+
+    if (showRepoDialog) {
+        UpdateRepoConfigDialog(
+            initialRepo = resolvedUpdateRepo,
+            onDismiss = { showRepoDialog = false },
+            onSave = { repo ->
+                showRepoDialog = false
+                onSaveUpdateRepo(repo)
+            }
+        )
+    }
+}
+
+@Composable
+private fun AppUpdateSettingsCard(
+    currentVersionLabel: String,
+    resolvedUpdateRepo: String,
+    autoCheckEnabled: Boolean,
+    updateState: AppUpdateState,
+    onAutoCheckChange: (Boolean) -> Unit,
+    onCheckNow: () -> Unit,
+    onConfigureRepo: () -> Unit
+) {
+    val isChecking = updateState is AppUpdateState.Checking
+    val statusBadge = when (updateState) {
+        is AppUpdateState.UpdateAvailable -> "Có bản mới ${updateState.release.tagName}"
+        is AppUpdateState.UpToDate -> stringResource(R.string.update_up_to_date)
+        is AppUpdateState.Checking -> stringResource(R.string.update_checking)
+        is AppUpdateState.Downloading -> stringResource(R.string.update_downloading)
+        is AppUpdateState.ReadyToInstall -> "Đã tải xong bản mới"
+        else -> "Phiên bản $currentVersionLabel"
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.SystemUpdate,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = stringResource(R.string.update_section_title),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (updateState is AppUpdateState.UpdateAvailable) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    }
+                ) {
+                    Text(
+                        text = statusBadge,
+                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMonoFamily),
+                        color = if (updateState is AppUpdateState.UpdateAvailable) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            SettingToggleRow(
+                title = stringResource(R.string.update_auto_check_title),
+                subtitle = stringResource(R.string.update_auto_check_subtitle),
+                checked = autoCheckEnabled,
+                onCheckedChange = onAutoCheckChange,
+                testTag = "toggle_auto_check_updates"
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Button(
+                    onClick = onCheckNow,
+                    enabled = !isChecking,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .testTag("settings_check_updates_button"),
+                    shape = MaterialTheme.shapes.small
+                ) {
+                    if (isChecking) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    } else {
+                        Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = stringResource(R.string.update_check_latest_button),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = onConfigureRepo,
+                    modifier = Modifier
+                        .height(48.dp)
+                        .testTag("settings_update_repo_button"),
+                    shape = MaterialTheme.shapes.small
+                ) {
+                    Icon(Icons.Filled.Link, contentDescription = null, modifier = Modifier.size(17.dp))
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(stringResource(R.string.update_repo_button))
+                }
+            }
+
+            if (resolvedUpdateRepo.isNotBlank()) {
+                Text(
+                    text = "GitHub: $resolvedUpdateRepo · Hiện tại: $currentVersionLabel",
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMonoFamily),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun UpdateRepoConfigDialog(
+    initialRepo: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit
+) {
+    var repoText by remember(initialRepo) { mutableStateOf(initialRepo) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.update_repo_dialog_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Bản APK tạo từ GitHub Actions sẽ tự gắn sẵn kho GitHub. Bạn có thể chỉnh tại đây nếu cần kiểm tra từ kho khác.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = repoText,
+                    onValueChange = { repoText = it },
+                    label = { Text(stringResource(R.string.update_repo_input_label)) },
+                    placeholder = { Text(stringResource(R.string.update_repo_placeholder)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onSave(repoText) }) {
+                Text(stringResource(R.string.action_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_close))
+            }
+        }
+    )
 }
 
 @Composable

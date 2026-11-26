@@ -2,10 +2,12 @@ package com.example
 
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -47,13 +49,16 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.ui.components.AppUpdateDialog
 import com.example.ui.components.InstantQrGeneratorDialog
 import com.example.ui.screens.CloudServicesScreen
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.UploadScreen
 import com.example.ui.theme.CloudDropTheme
+import com.example.update.InstallLaunchResult
 import com.example.util.FileMetadataResolver
 import com.example.viewmodel.MainViewModel
+import java.io.File
 
 enum class MainTab(
     val labelRes: Int,
@@ -85,6 +90,16 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: MainViewModel by viewModels()
 
+    private val installPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        val pendingFile = viewModel.pendingInstallApk.value
+        if (pendingFile != null && viewModel.updateManager.canInstallPackages()) {
+            viewModel.markInstallPermissionGranted()
+            triggerApkInstaller(pendingFile)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(
@@ -92,11 +107,20 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
         )
 
+        val isIncomingShare = intent?.action == Intent.ACTION_SEND ||
+            intent?.action == Intent.ACTION_SEND_MULTIPLE
         handleIncomingShareIfPresent(intent)
+        // Only check updates when entering the main app directly (never during Share flows)
+        if (!isIncomingShare) {
+            viewModel.checkForUpdatesOnAppOpen()
+        }
 
         setContent {
             CloudDropTheme(darkTheme = true) {
-                CloudDropAppShell(viewModel = viewModel)
+                CloudDropAppShell(
+                    viewModel = viewModel,
+                    onInstallApk = ::triggerApkInstaller
+                )
             }
         }
     }
@@ -116,11 +140,36 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    private fun triggerApkInstaller(apkFile: File) {
+        when (val result = viewModel.updateManager.launchApkInstaller(this, apkFile)) {
+            InstallLaunchResult.Launched -> {
+                viewModel.clearPendingInstallApk()
+            }
+
+            is InstallLaunchResult.NeedsPermission -> {
+                viewModel.markNeedsInstallPermission(apkFile)
+                Toast.makeText(
+                    this,
+                    getString(R.string.update_permission_needed),
+                    Toast.LENGTH_LONG
+                ).show()
+                installPermissionLauncher.launch(result.settingsIntent)
+            }
+
+            is InstallLaunchResult.Failed -> {
+                Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CloudDropAppShell(viewModel: MainViewModel) {
+private fun CloudDropAppShell(
+    viewModel: MainViewModel,
+    onInstallApk: (File) -> Unit
+) {
     var activeTab by rememberSaveable { mutableStateOf(MainTab.UPLOAD) }
     var showQuickQrDialog by rememberSaveable { mutableStateOf(false) }
     val uploadState by viewModel.uploadState.collectAsStateWithLifecycle()
@@ -132,6 +181,10 @@ private fun CloudDropAppShell(viewModel: MainViewModel) {
     val sessionProvider by viewModel.selectedProviderOverride.collectAsStateWithLifecycle()
     val searchQuery by viewModel.historySearchQuery.collectAsStateWithLifecycle()
     val historyFilter by viewModel.historyFilter.collectAsStateWithLifecycle()
+    val updateState by viewModel.updateState.collectAsStateWithLifecycle()
+
+    val currentVersionLabel = viewModel.updateManager.currentVersionDisplay()
+    val resolvedUpdateRepo = viewModel.updateManager.resolveRepoSlug(preferences.updateRepoOverride)
 
     val effectiveRetention = sessionRetention ?: preferences.defaultRetention
     val effectiveProvider = sessionProvider ?: preferences.preferredProviderId
@@ -260,7 +313,13 @@ private fun CloudDropAppShell(viewModel: MainViewModel) {
                             preferences = preferences,
                             providerHealth = providerHealth,
                             isProbing = isProbing,
+                            currentVersionLabel = currentVersionLabel,
+                            resolvedUpdateRepo = resolvedUpdateRepo,
+                            updateState = updateState,
                             onProbeAll = viewModel::probeAllServers,
+                            onCheckUpdatesNow = { viewModel.checkForUpdates(manual = true) },
+                            onAutoCheckUpdatesChange = viewModel::setAutoCheckUpdates,
+                            onSaveUpdateRepo = viewModel::setUpdateRepoOverride,
                             onAutoUploadChange = viewModel::setAutoUploadOnShare,
                             onPopupModeChange = viewModel::setSharePopupMode,
                             onToggleProvider = viewModel::setProviderEnabled,
@@ -276,4 +335,16 @@ private fun CloudDropAppShell(viewModel: MainViewModel) {
     if (showQuickQrDialog) {
         InstantQrGeneratorDialog(onDismiss = { showQuickQrDialog = false })
     }
+
+    AppUpdateDialog(
+        state = updateState,
+        currentVersionLabel = currentVersionLabel,
+        onCheckLatest = { viewModel.checkForUpdates(manual = true) },
+        onDownloadAndInstall = { release ->
+            viewModel.downloadUpdate(release, onReadyToInstall = onInstallApk)
+        },
+        onOpenInstaller = onInstallApk,
+        onCancelDownload = viewModel::cancelUpdateDownload,
+        onDismiss = viewModel::dismissUpdateDialog
+    )
 }

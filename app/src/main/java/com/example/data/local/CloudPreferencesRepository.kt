@@ -37,6 +37,8 @@ class CloudPreferencesRepository(private val context: Context) {
         val CUSTOM_FIELD_NAME = stringPreferencesKey("custom_field_name")
         val CUSTOM_AUTH_HEADER = stringPreferencesKey("custom_auth_header")
         val CUSTOM_JSON_URL_PATH = stringPreferencesKey("custom_json_url_path")
+        val AUTO_CHECK_UPDATES = booleanPreferencesKey("auto_check_updates")
+        val UPDATE_REPO_OVERRIDE = stringPreferencesKey("update_repo_override")
     }
 
     val preferencesFlow: Flow<CloudAppPreferences> = context.cloudPrefsDataStore.data
@@ -56,7 +58,9 @@ class CloudPreferencesRepository(private val context: Context) {
                 customEndpointUrl = prefs[Keys.CUSTOM_ENDPOINT_URL] ?: "",
                 customFieldName = prefs[Keys.CUSTOM_FIELD_NAME]?.ifBlank { "file" } ?: "file",
                 customAuthHeader = prefs[Keys.CUSTOM_AUTH_HEADER] ?: "",
-                customJsonUrlPath = prefs[Keys.CUSTOM_JSON_URL_PATH] ?: "url"
+                customJsonUrlPath = prefs[Keys.CUSTOM_JSON_URL_PATH] ?: "url",
+                autoCheckUpdates = prefs[Keys.AUTO_CHECK_UPDATES] ?: true,
+                updateRepoOverride = prefs[Keys.UPDATE_REPO_OVERRIDE] ?: ""
             )
         }
 
@@ -120,5 +124,13 @@ class CloudPreferencesRepository(private val context: Context) {
             prefs[Keys.CUSTOM_AUTH_HEADER] = authHeader.trim()
             prefs[Keys.CUSTOM_JSON_URL_PATH] = jsonUrlPath.trim()
         }
+    }
+
+    suspend fun setAutoCheckUpdates(enabled: Boolean) {
+        context.cloudPrefsDataStore.edit { it[Keys.AUTO_CHECK_UPDATES] = enabled }
+    }
+
+    suspend fun setUpdateRepoOverride(repoSlug: String) {
+        context.cloudPrefsDataStore.edit { it[Keys.UPDATE_REPO_OVERRIDE] = repoSlug.trim() }
     }
 }

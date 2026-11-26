@@ -19,6 +19,24 @@ android {
     versionCode = 1
     versionName = "1.0"
 
+    val updateRepo =
+        ((project.findProperty("UPDATE_REPO") as? String)
+                ?: System.getenv("GITHUB_REPOSITORY")
+                ?: "")
+            .trim()
+            .replace("\"", "")
+    val appBuildNumber =
+        ((project.findProperty("APP_BUILD_NUMBER") as? String)
+                ?: System.getenv("GITHUB_RUN_NUMBER")
+                ?: "0")
+            .toIntOrNull() ?: 0
+    val appBuildTag =
+        ((project.findProperty("APP_BUILD_TAG") as? String) ?: "").trim().replace("\"", "")
+
+    buildConfigField("String", "GITHUB_UPDATE_REPO", "\"$updateRepo\"")
+    buildConfigField("int", "APP_BUILD_NUMBER", "$appBuildNumber")
+    buildConfigField("String", "APP_BUILD_TAG", "\"$appBuildTag\"")
+
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
