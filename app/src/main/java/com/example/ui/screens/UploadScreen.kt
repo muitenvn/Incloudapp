@@ -89,9 +89,9 @@ fun UploadScreen(
     val context = LocalContext.current
     var showQuickTextDialog by remember { mutableStateOf(false) }
 
-    // Zero-permission Android Photo Picker for Photos & Videos
+    // Zero-permission Android Photo Picker for Photos & Videos (up to 30 items grouped into 1 link)
     val mediaPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 10)
+        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 30)
     ) { uris ->
         if (uris.isNotEmpty()) {
             val payloads = uris.map { FileMetadataResolver.resolveUri(context, it) }
@@ -540,9 +540,9 @@ private fun ShareSheetGuideCard() {
                     color = MaterialTheme.colorScheme.onSurface
                 )
             }
-            GuideStepRow("1", "Mở Ảnh, Video hoặc Trình quản lý tệp bất kỳ trên máy.")
-            GuideStepRow("2", "Nhấn nút Chia sẻ (Share) và chọn \"Tải lên CloudDrop\".")
-            GuideStepRow("3", "Bảng pop-up tự đo máy chủ tốt nhất, gửi tệp và trả về liên kết + mã QR ngay lập tức.")
+            GuideStepRow("1", "Mở Ảnh, Video hoặc Tệp (có thể chọn nhiều ảnh/tệp cùng lúc).")
+            GuideStepRow("2", "Nhấn nút Chia sẻ (Share) và chọn \"Tải lên InCloud\".")
+            GuideStepRow("3", "Bảng pop-up tự gộp nhóm ảnh/tệp vào chung 1 đường link + 1 mã QR duy nhất để gửi và lưu trữ cực gọn.")
         }
     }
 }

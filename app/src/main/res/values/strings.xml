@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">CloudDrop</string>
-    <string name="share_receiver_label">Tải lên CloudDrop</string>
+    <string name="app_name">InCloud</string>
+    <string name="share_receiver_label">Tải lên InCloud</string>
     <string name="app_tagline">Chia sẻ nhanh lên đám mây kèm liên kết &amp; mã QR</string>
 
     <!-- Navigation -->
@@ -11,7 +11,7 @@
 
     <!-- Upload screen -->
     <string name="hero_title">Chia sẻ tệp tức thì từ bất kỳ ứng dụng nào</string>
-    <string name="hero_subtitle">Nhấn nút Chia sẻ ở Ảnh, Tệp hoặc Trình duyệt rồi chọn CloudDrop — tự động chọn máy chủ phù hợp và tạo mã QR.</string>
+    <string name="hero_subtitle">Nhấn nút Chia sẻ ở Ảnh, Tệp hoặc Trình duyệt rồi chọn InCloud — tự động chọn máy chủ phù hợp và tạo mã QR.</string>
     <string name="action_pick_media">Ảnh / Video</string>
     <string name="action_pick_file">Tệp bất kỳ</string>
     <string name="action_quick_text">Gửi văn bản</string>
@@ -61,7 +61,7 @@
     <string name="history_title">Lịch sử chia sẻ</string>
     <string name="history_search_hint">Tìm theo tên tệp hoặc máy chủ…</string>
     <string name="history_empty_title">Chưa có tệp nào được tải lên</string>
-    <string name="history_empty_subtitle">Chọn tệp ở tab Tải lên hoặc dùng nút Chia sẻ từ ứng dụng khác để gửi vào CloudDrop.</string>
+    <string name="history_empty_subtitle">Chọn tệp ở tab Tải lên hoặc dùng nút Chia sẻ từ ứng dụng khác để gửi vào InCloud.</string>
     <string name="filter_all">Tất cả</string>
     <string name="filter_images">Hình ảnh</string>
     <string name="filter_videos">Video</string>
@@ -105,25 +105,19 @@
     <string name="quick_qr_placeholder">https://… hoặc văn bản bất kỳ</string>
     <string name="quick_qr_live_hint">Mã QR được tự động tạo ngay khi bạn nhập hoặc dán nội dung</string>
 
-    <!-- App Auto-Update -->
+    <!-- App Auto-Update (Google Play compliant via browser release link) -->
     <string name="update_section_title">Cập nhật ứng dụng</string>
     <string name="update_dialog_title">Có bản cập nhật mới</string>
-    <string name="update_dialog_subtitle">Phiên bản mới đã sẵn sàng trên GitHub Releases.</string>
+    <string name="update_dialog_subtitle">Phiên bản mới đã sẵn sàng trên trang phát hành GitHub.</string>
     <string name="update_auto_check_title">Tự động kiểm tra cập nhật khi mở app</string>
     <string name="update_auto_check_subtitle">Chỉ kiểm tra khi bạn mở ứng dụng chính, không làm gián đoạn bảng chia sẻ nhanh.</string>
     <string name="update_check_latest_button">Kiểm tra bản cập nhật mới nhất</string>
     <string name="update_checking">Đang kiểm tra bản cập nhật mới nhất…</string>
     <string name="update_up_to_date">Bạn đang dùng phiên bản mới nhất</string>
-    <string name="update_download_and_install">Tải về &amp; cài đặt</string>
-    <string name="update_open_installer">Mở trình cài đặt</string>
-    <string name="update_downloading">Đang tải bản cập nhật…</string>
-    <string name="update_ready_install">Đã tải xong. Nhấn để mở trình cài đặt Android.</string>
-    <string name="update_permission_needed">Cần bật quyền \"Cài đặt ứng dụng không rõ nguồn gốc\" cho CloudDrop để mở trình cài đặt.</string>
-    <string name="update_open_permission_settings">Cấp quyền cài đặt</string>
+    <string name="update_open_release_page">Tải bản mới qua trình duyệt</string>
     <string name="update_later">Để sau</string>
     <string name="update_repo_button">Nguồn GitHub</string>
     <string name="update_repo_dialog_title">Cấu hình nguồn cập nhật GitHub</string>
     <string name="update_repo_input_label">Kho GitHub (chủ_sở_hữu/tên_repo)</string>
-    <string name="update_repo_placeholder">vd: muitenvn/CloudDrop</string>
-    <string name="update_repo_missing">Chưa liên kết kho GitHub. Hãy cài bản APK tải từ GitHub Releases hoặc nhập tên repo (owner/repo) trong mục Nguồn GitHub.</string>
+    <string name="update_repo_placeholder">vd: muitenvn/InCloud</string>
 </resources>

@@ -96,7 +96,7 @@ object QrCodeGenerator {
             canvas.drawText(displayUrl, cardWidth / 2f, 954f, subtitlePaint)
 
             val exportDir = File(context.cacheDir, "qr_exports").apply { mkdirs() }
-            val outFile = File(exportDir, "clouddrop_qr_${System.currentTimeMillis()}.png")
+            val outFile = File(exportDir, "incloud_qr_${System.currentTimeMillis()}.png")
             FileOutputStream(outFile).use { out ->
                 card.compress(Bitmap.CompressFormat.PNG, 100, out)
             }

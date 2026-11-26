@@ -33,16 +33,16 @@ class CloudDropRepository(
         return result
     }
 
-    suspend fun uploadAndRecord(
-        payload: SharedFilePayload,
+    suspend fun uploadGroupAndRecord(
+        payloads: List<SharedFilePayload>,
         retention: RetentionPreference,
         overrideProviderId: CloudProviderId?,
         onSelecting: () -> Unit,
         onProgress: (UploadProgressUpdate) -> Unit
     ): UploadedItemEntity {
         val prefs = preferencesRepository.currentPreferences()
-        val uploaded = uploadEngine.uploadFileWithSmartSelection(
-            payload = payload,
+        val uploaded = uploadEngine.uploadGroupAsSingleLink(
+            payloads = payloads,
             retention = retention,
             overrideProviderId = overrideProviderId,
             prefs = prefs,

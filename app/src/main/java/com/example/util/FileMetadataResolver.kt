@@ -7,12 +7,16 @@ import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
 import androidx.core.content.IntentCompat
 import com.example.data.model.SharedFilePayload
+import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import java.util.zip.Deflater
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import kotlin.math.ln
 import kotlin.math.pow
 
@@ -89,7 +93,7 @@ object FileMetadataResolver {
         val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(resolvedMime)
         val safeName = sanitizeFileName(
             displayName?.takeIf { it.isNotBlank() }
-                ?: "clouddrop_${System.currentTimeMillis()}${if (ext != null) ".$ext" else ""}"
+                ?: "incloud_${System.currentTimeMillis()}${if (ext != null) ".$ext" else ""}"
         )
 
         val finalSize = if (sizeBytes > 0L) {
@@ -157,6 +161,66 @@ object FileMetadataResolver {
             }
         }
         return target
+    }
+
+    /**
+     * Bundles multiple staged files into a single fast ZIP archive so any cloud provider
+     * can store the entire photo/file group under ONE single shareable link + QR code.
+     */
+    fun createZipBundle(
+        context: Context,
+        stagedFiles: List<Pair<SharedFilePayload, File>>,
+        bundleBaseName: String
+    ): File {
+        val stagingDir = File(context.cacheDir, "upload_staging").apply { mkdirs() }
+        val safeBase = sanitizeFileName(bundleBaseName).removeSuffix(".zip")
+        val zipFile = File(stagingDir, "${safeBase}_${System.currentTimeMillis()}.zip")
+        val usedNames = mutableSetOf<String>()
+        val buffer = ByteArray(32 * 1024)
+
+        ZipOutputStream(BufferedOutputStream(FileOutputStream(zipFile))).use { zos ->
+            zos.setLevel(Deflater.BEST_SPEED)
+            for ((payload, file) in stagedFiles) {
+                val entryName = deduplicateName(sanitizeFileName(payload.fileName), usedNames)
+                zos.putNextEntry(ZipEntry(entryName))
+                file.inputStream().use { input ->
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read <= 0) break
+                        zos.write(buffer, 0, read)
+                    }
+                }
+                zos.closeEntry()
+            }
+        }
+        return zipFile
+    }
+
+    fun buildGroupDisplayName(payloads: List<SharedFilePayload>): String {
+        val count = payloads.size
+        val allImages = payloads.all { it.isImage }
+        val allVideos = payloads.all { it.isVideo }
+        val allMedia = payloads.all { it.isImage || it.isVideo }
+        val stamp = SimpleDateFormat("ddMM_HHmm", Locale.US).format(Date())
+        return when {
+            allImages -> "Nhom_${count}_anh_$stamp"
+            allVideos -> "Nhom_${count}_video_$stamp"
+            allMedia -> "Nhom_${count}_anh_video_$stamp"
+            else -> "Nhom_${count}_tep_$stamp"
+        }
+    }
+
+    private fun deduplicateName(name: String, used: MutableSet<String>): String {
+        if (used.add(name.lowercase(Locale.ROOT))) return name
+        val dot = name.lastIndexOf('.')
+        val base = if (dot > 0) name.substring(0, dot) else name
+        val ext = if (dot > 0) name.substring(dot) else ""
+        var index = 1
+        while (true) {
+            val candidate = "${base}_$index$ext"
+            if (used.add(candidate.lowercase(Locale.ROOT))) return candidate
+            index++
+        }
     }
 
     fun cleanupStagedFile(file: File?) {

@@ -3,7 +3,4 @@
     <cache-path
         name="qr_exports"
         path="qr_exports/" />
-    <cache-path
-        name="apk_updates"
-        path="apk_updates/" />
 </paths>

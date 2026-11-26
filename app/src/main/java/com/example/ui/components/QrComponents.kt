@@ -472,7 +472,7 @@ fun QrFullscreenDialog(
 
 fun copyLinkToClipboard(context: Context, url: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-    cm?.setPrimaryClip(ClipData.newPlainText("CloudDrop Link", url))
+    cm?.setPrimaryClip(ClipData.newPlainText("InCloud Link", url))
     Toast.makeText(context, context.getString(R.string.action_copied), Toast.LENGTH_SHORT).show()
 }
 
@@ -629,7 +629,7 @@ fun InstantQrGeneratorDialog(
                             Text(stringResource(R.string.action_copy_link))
                         }
                         OutlinedButton(
-                            onClick = { shareQrImage(context, contentText.trim(), "CloudDrop QR") },
+                            onClick = { shareQrImage(context, contentText.trim(), "InCloud QR") },
                             modifier = Modifier.weight(1f).height(48.dp)
                         ) {
                             Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))

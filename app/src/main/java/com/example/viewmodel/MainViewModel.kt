@@ -14,8 +14,6 @@ import com.example.data.model.UploadUiState
 import com.example.data.model.UploadedItemEntity
 import com.example.update.AppUpdateManager
 import com.example.update.AppUpdateState
-import com.example.update.ReleaseUpdateInfo
-import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -74,9 +72,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _updateState = MutableStateFlow<AppUpdateState>(AppUpdateState.Idle)
     val updateState: StateFlow<AppUpdateState> = _updateState.asStateFlow()
 
-    private val _pendingInstallApk = MutableStateFlow<File?>(null)
-    val pendingInstallApk: StateFlow<File?> = _pendingInstallApk.asStateFlow()
-
     private var activeUploadJob: Job? = null
     private var updateJob: Job? = null
     private var didAutoCheckUpdates = false
@@ -103,7 +98,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (repoSlug.isEmpty()) {
                     _updateState.value = if (manual) {
                         AppUpdateState.Error(
-                            message = "Chưa liên kết kho GitHub. Hãy cài APK từ GitHub Releases hoặc nhập tên repo (vd: ten_ban/CloudDrop) trong mục Nguồn GitHub.",
+                            message = "Chưa liên kết kho GitHub. Hãy cài APK từ GitHub Releases hoặc nhập tên repo (vd: ten_ban/InCloud) trong mục Nguồn GitHub.",
                             isManual = true
                         )
                     } else {
@@ -153,76 +148,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun downloadUpdate(release: ReleaseUpdateInfo, onReadyToInstall: (File) -> Unit) {
-        updateJob?.cancel()
-        updateJob = viewModelScope.launch {
-            _updateState.value = AppUpdateState.Downloading(
-                release = release,
-                bytesDownloaded = 0L,
-                totalBytes = release.apkSizeBytes,
-                bytesPerSecond = 0L
-            )
-            try {
-                val apkFile = updateManager.downloadApk(release) { downloaded, total, speed ->
-                    _updateState.value = AppUpdateState.Downloading(
-                        release = release,
-                        bytesDownloaded = downloaded,
-                        totalBytes = total,
-                        bytesPerSecond = speed
-                    )
-                }
-                val needsPerm = !updateManager.canInstallPackages()
-                _pendingInstallApk.value = apkFile
-                _updateState.value = AppUpdateState.ReadyToInstall(
-                    release = release,
-                    apkFile = apkFile,
-                    needsInstallPermission = needsPerm
-                )
-                onReadyToInstall(apkFile)
-            } catch (ce: CancellationException) {
-                _updateState.value = AppUpdateState.UpdateAvailable(release = release, showDialog = true)
-            } catch (e: Exception) {
-                _updateState.value = AppUpdateState.Error(
-                    message = e.message ?: "Tải tệp cập nhật APK thất bại.",
-                    isManual = true,
-                    release = release
-                )
-            }
-        }
-    }
-
-    fun cancelUpdateDownload() {
-        updateJob?.cancel()
-        updateJob = null
-        _updateState.value = AppUpdateState.Idle
-    }
-
     fun dismissUpdateDialog() {
         val current = _updateState.value
         _updateState.value = when (current) {
             is AppUpdateState.UpdateAvailable -> current.copy(showDialog = false)
-            is AppUpdateState.Downloading -> current
             else -> AppUpdateState.Idle
         }
-    }
-
-    fun markNeedsInstallPermission(apkFile: File) {
-        val current = _updateState.value
-        if (current is AppUpdateState.ReadyToInstall) {
-            _pendingInstallApk.value = apkFile
-            _updateState.value = current.copy(needsInstallPermission = true)
-        }
-    }
-
-    fun markInstallPermissionGranted() {
-        val current = _updateState.value
-        if (current is AppUpdateState.ReadyToInstall) {
-            _updateState.value = current.copy(needsInstallPermission = false)
-        }
-    }
-
-    fun clearPendingInstallApk() {
-        _pendingInstallApk.value = null
     }
 
     fun setAutoCheckUpdates(enabled: Boolean) {
@@ -260,70 +191,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val prefs = repository.preferencesRepository.currentPreferences()
             val retention = _selectedRetention.value ?: prefs.defaultRetention
             val overrideProvider = _selectedProviderOverride.value ?: prefs.preferredProviderId
-            val completed = mutableListOf<UploadedItemEntity>()
-            val failedNames = mutableListOf<String>()
+            val displayPayload = buildGroupDisplayPayload(files)
 
             try {
-                files.forEachIndexed { index, payload ->
-                    _uploadState.value = UploadUiState.Preparing(payload.fileName)
-                    try {
-                        val uploaded = repository.uploadAndRecord(
-                            payload = payload,
-                            retention = retention,
-                            overrideProviderId = overrideProvider,
-                            onSelecting = {
-                                _uploadState.value = UploadUiState.SelectingServer(
-                                    file = payload,
-                                    currentIndex = index + 1,
-                                    totalFiles = files.size
-                                )
-                            },
-                            onProgress = { progress ->
-                                _uploadState.value = UploadUiState.Uploading(
-                                    file = payload,
-                                    providerName = progress.provider.displayName,
-                                    providerLatencyMs = progress.providerLatencyMs,
-                                    bytesUploaded = progress.bytesUploaded,
-                                    totalBytes = progress.totalBytes,
-                                    bytesPerSecond = progress.bytesPerSecond,
-                                    isFailover = progress.isFailover,
-                                    currentIndex = index + 1,
-                                    totalFiles = files.size
-                                )
-                            }
+                _uploadState.value = UploadUiState.Preparing(displayPayload.fileName)
+                val uploaded = repository.uploadGroupAndRecord(
+                    payloads = files,
+                    retention = retention,
+                    overrideProviderId = overrideProvider,
+                    onSelecting = {
+                        _uploadState.value = UploadUiState.SelectingServer(
+                            file = displayPayload,
+                            currentIndex = 1,
+                            totalFiles = 1
                         )
-                        completed.add(uploaded)
-                    } catch (ce: CancellationException) {
-                        throw ce
-                    } catch (e: Exception) {
-                        if (files.size == 1) {
-                            _uploadState.value = UploadUiState.Error(
-                                message = e.message ?: "Đã xảy ra lỗi khi tải tệp lên đám mây.",
-                                failedFile = payload,
-                                originalFiles = files
-                            )
-                            return@launch
-                        } else {
-                            failedNames.add(payload.fileName)
-                        }
+                    },
+                    onProgress = { progress ->
+                        _uploadState.value = UploadUiState.Uploading(
+                            file = displayPayload,
+                            providerName = progress.provider.displayName,
+                            providerLatencyMs = progress.providerLatencyMs,
+                            bytesUploaded = progress.bytesUploaded,
+                            totalBytes = progress.totalBytes,
+                            bytesPerSecond = progress.bytesPerSecond,
+                            isFailover = progress.isFailover,
+                            currentIndex = 1,
+                            totalFiles = 1
+                        )
                     }
-                }
-
-                if (completed.isNotEmpty()) {
-                    _uploadState.value = UploadUiState.Success(
-                        results = completed,
-                        failedNames = failedNames
-                    )
-                } else {
-                    _uploadState.value = UploadUiState.Error(
-                        message = "Không thể tải lên các tệp đã chọn. Vui lòng kiểm tra mạng hoặc đổi máy chủ.",
-                        originalFiles = files
-                    )
-                }
+                )
+                _uploadState.value = UploadUiState.Success(results = listOf(uploaded))
             } catch (_: CancellationException) {
                 _uploadState.value = UploadUiState.Idle
+            } catch (e: Exception) {
+                _uploadState.value = UploadUiState.Error(
+                    message = e.message ?: "Đã xảy ra lỗi khi tải tệp lên đám mây.",
+                    failedFile = displayPayload,
+                    originalFiles = files
+                )
             }
         }
+    }
+
+    private fun buildGroupDisplayPayload(files: List<SharedFilePayload>): SharedFilePayload {
+        if (files.size == 1) return files.first()
+        val allImages = files.all { it.isImage }
+        val totalSize = files.sumOf { it.sizeBytes.coerceAtLeast(0L) }
+        val label = if (allImages) {
+            "Nhóm ${files.size} ảnh"
+        } else {
+            "Nhóm ${files.size} tệp"
+        }
+        return files.first().copy(
+            fileName = label,
+            sizeBytes = totalSize
+        )
     }
 
     fun cancelUpload() {

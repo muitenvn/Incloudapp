@@ -10,7 +10,6 @@ import com.example.data.model.CloudProviderId
 import com.example.data.model.RetentionPreference
 import com.example.data.model.SharedFilePayload
 import com.example.data.model.UploadUiState
-import com.example.data.model.UploadedItemEntity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -82,70 +81,60 @@ class SharePopupViewModel(application: Application) : AndroidViewModel(applicati
         if (files.isEmpty()) return
         uploadJob?.cancel()
         uploadJob = viewModelScope.launch {
-            val completed = mutableListOf<UploadedItemEntity>()
-            val failedNames = mutableListOf<String>()
-
+            val displayPayload = buildGroupDisplayPayload(files)
             try {
-                files.forEachIndexed { index, payload ->
-                    _uiState.value = UploadUiState.Preparing(payload.fileName)
-                    try {
-                        val uploaded = repository.uploadAndRecord(
-                            payload = payload,
-                            retention = _selectedRetention.value,
-                            overrideProviderId = _selectedProvider.value,
-                            onSelecting = {
-                                _uiState.value = UploadUiState.SelectingServer(
-                                    file = payload,
-                                    currentIndex = index + 1,
-                                    totalFiles = files.size
-                                )
-                            },
-                            onProgress = { progress ->
-                                _uiState.value = UploadUiState.Uploading(
-                                    file = payload,
-                                    providerName = progress.provider.displayName,
-                                    providerLatencyMs = progress.providerLatencyMs,
-                                    bytesUploaded = progress.bytesUploaded,
-                                    totalBytes = progress.totalBytes,
-                                    bytesPerSecond = progress.bytesPerSecond,
-                                    isFailover = progress.isFailover,
-                                    currentIndex = index + 1,
-                                    totalFiles = files.size
-                                )
-                            }
+                _uiState.value = UploadUiState.Preparing(displayPayload.fileName)
+                val uploaded = repository.uploadGroupAndRecord(
+                    payloads = files,
+                    retention = _selectedRetention.value,
+                    overrideProviderId = _selectedProvider.value,
+                    onSelecting = {
+                        _uiState.value = UploadUiState.SelectingServer(
+                            file = displayPayload,
+                            currentIndex = 1,
+                            totalFiles = 1
                         )
-                        completed.add(uploaded)
-                    } catch (ce: CancellationException) {
-                        throw ce
-                    } catch (e: Exception) {
-                        if (files.size == 1) {
-                            _uiState.value = UploadUiState.Error(
-                                message = e.message ?: "Tải lên thất bại. Vui lòng thử lại.",
-                                failedFile = payload,
-                                originalFiles = files
-                            )
-                            return@launch
-                        } else {
-                            failedNames.add(payload.fileName)
-                        }
+                    },
+                    onProgress = { progress ->
+                        _uiState.value = UploadUiState.Uploading(
+                            file = displayPayload,
+                            providerName = progress.provider.displayName,
+                            providerLatencyMs = progress.providerLatencyMs,
+                            bytesUploaded = progress.bytesUploaded,
+                            totalBytes = progress.totalBytes,
+                            bytesPerSecond = progress.bytesPerSecond,
+                            isFailover = progress.isFailover,
+                            currentIndex = 1,
+                            totalFiles = 1
+                        )
                     }
-                }
-
-                if (completed.isNotEmpty()) {
-                    _uiState.value = UploadUiState.Success(
-                        results = completed,
-                        failedNames = failedNames
-                    )
-                } else {
-                    _uiState.value = UploadUiState.Error(
-                        message = "Không thể tải lên các tệp đã chia sẻ.",
-                        originalFiles = files
-                    )
-                }
+                )
+                _uiState.value = UploadUiState.Success(results = listOf(uploaded))
             } catch (_: CancellationException) {
                 _uiState.value = UploadUiState.Ready(files)
+            } catch (e: Exception) {
+                _uiState.value = UploadUiState.Error(
+                    message = e.message ?: "Tải lên thất bại. Vui lòng thử lại.",
+                    failedFile = displayPayload,
+                    originalFiles = files
+                )
             }
         }
+    }
+
+    private fun buildGroupDisplayPayload(files: List<SharedFilePayload>): SharedFilePayload {
+        if (files.size == 1) return files.first()
+        val allImages = files.all { it.isImage }
+        val totalSize = files.sumOf { it.sizeBytes.coerceAtLeast(0L) }
+        val label = if (allImages) {
+            "Nhóm ${files.size} ảnh"
+        } else {
+            "Nhóm ${files.size} tệp"
+        }
+        return files.first().copy(
+            fileName = label,
+            sizeBytes = totalSize
+        )
     }
 
     fun cancelUpload() {

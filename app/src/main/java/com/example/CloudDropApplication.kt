@@ -25,6 +25,6 @@ class CloudDropApplication : Application() {
             preferencesRepository = preferences,
             uploadEngine = engine
         )
-        updateManager = AppUpdateManager(this)
+        updateManager = AppUpdateManager()
     }
 }

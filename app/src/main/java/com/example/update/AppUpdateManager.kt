@@ -3,18 +3,11 @@ package com.example.update
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
-import android.os.SystemClock
-import android.provider.Settings
-import androidx.core.content.FileProvider
+import android.widget.Toast
 import com.example.BuildConfig
-import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.Call
@@ -24,7 +17,6 @@ import okhttp3.Request
 import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
-import kotlin.coroutines.coroutineContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -32,8 +24,8 @@ data class ReleaseUpdateInfo(
     val tagName: String,
     val releaseTitle: String,
     val releaseNotes: String,
-    val apkName: String,
-    val apkDownloadUrl: String,
+    val apkName: String?,
+    val apkDownloadUrl: String?,
     val apkSizeBytes: Long,
     val htmlUrl: String
 )
@@ -52,50 +44,17 @@ sealed interface AppUpdateState {
         val showDialog: Boolean = true
     ) : AppUpdateState
 
-    data class Downloading(
-        val release: ReleaseUpdateInfo,
-        val bytesDownloaded: Long,
-        val totalBytes: Long,
-        val bytesPerSecond: Long
-    ) : AppUpdateState {
-        val progress: Float?
-            get() = if (totalBytes > 0L) {
-                (bytesDownloaded.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
-            } else {
-                null
-            }
-    }
-
-    data class ReadyToInstall(
-        val release: ReleaseUpdateInfo,
-        val apkFile: File,
-        val needsInstallPermission: Boolean = false
-    ) : AppUpdateState
-
     data class Error(
         val message: String,
-        val isManual: Boolean,
-        val release: ReleaseUpdateInfo? = null
+        val isManual: Boolean
     ) : AppUpdateState
 }
 
-sealed interface InstallLaunchResult {
-    data object Launched : InstallLaunchResult
-    data class NeedsPermission(val settingsIntent: Intent) : InstallLaunchResult
-    data class Failed(val message: String) : InstallLaunchResult
-}
-
-class AppUpdateManager(private val context: Context) {
+class AppUpdateManager {
 
     private val apiClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .build()
-
-    private val downloadClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
         .followRedirects(true)
         .build()
 
@@ -132,7 +91,6 @@ class AppUpdateManager(private val context: Context) {
             throw IllegalStateException("MISSING_REPO")
         }
 
-        // Try /releases/latest first; fallback to /releases?per_page=5 if only prereleases exist
         val latestJson = fetchJson("https://api.github.com/repos/$cleanRepo/releases/latest")
         val releaseObj = if (latestJson != null) {
             JSONObject(latestJson)
@@ -160,24 +118,28 @@ class AppUpdateManager(private val context: Context) {
             val asset = assets.getJSONObject(i)
             val name = asset.optString("name")
             if (name.endsWith(".apk", ignoreCase = true)) {
-                if (bestAsset == null || name.contains("CloudDrop", ignoreCase = true)) {
+                val matchesBrand = name.contains("InCloud", ignoreCase = true) ||
+                    name.contains("CloudDrop", ignoreCase = true)
+                if (bestAsset == null || matchesBrand) {
                     bestAsset = asset
                 }
             }
         }
 
-        val apkAsset = bestAsset ?: return@withContext null
-        val downloadUrl = apkAsset.optString("browser_download_url").trim()
-        if (!downloadUrl.startsWith("https://", ignoreCase = true)) return@withContext null
+        val htmlUrl = releaseObj.optString("html_url").trim()
+            .ifBlank { "https://github.com/$cleanRepo/releases/latest" }
+        val apkDownloadUrl = bestAsset?.optString("browser_download_url")
+            ?.trim()
+            ?.takeIf { it.startsWith("https://", ignoreCase = true) }
 
         ReleaseUpdateInfo(
             tagName = tagName,
-            releaseTitle = releaseObj.optString("name").trim().ifBlank { "CloudDrop $tagName" },
+            releaseTitle = releaseObj.optString("name").trim().ifBlank { "InCloud $tagName" },
             releaseNotes = releaseObj.optString("body").trim(),
-            apkName = apkAsset.optString("name").trim().ifBlank { "CloudDrop-$tagName.apk" },
-            apkDownloadUrl = downloadUrl,
-            apkSizeBytes = apkAsset.optLong("size", 0L),
-            htmlUrl = releaseObj.optString("html_url").trim()
+            apkName = bestAsset?.optString("name")?.trim(),
+            apkDownloadUrl = apkDownloadUrl,
+            apkSizeBytes = bestAsset?.optLong("size", 0L) ?: 0L,
+            htmlUrl = htmlUrl
         )
     }
 
@@ -204,112 +166,24 @@ class AppUpdateManager(private val context: Context) {
         return false
     }
 
-    suspend fun downloadApk(
-        release: ReleaseUpdateInfo,
-        onProgress: (bytesDownloaded: Long, totalBytes: Long, bytesPerSecond: Long) -> Unit
-    ): File = withContext(Dispatchers.IO) {
-        val updatesDir = File(context.cacheDir, "apk_updates").apply { mkdirs() }
-        // Clean up any stale APKs
-        updatesDir.listFiles()?.forEach { old -> runCatching { old.delete() } }
-
-        val partFile = File(updatesDir, "clouddrop_update.apk.part")
-        val finalFile = File(updatesDir, "clouddrop_update.apk")
-
-        val request = Request.Builder()
-            .url(release.apkDownloadUrl)
-            .header("User-Agent", USER_AGENT)
-            .header("Accept", "application/octet-stream")
-            .get()
-            .build()
-
-        try {
-            downloadClient.newCall(request).await().use { response ->
-                if (!response.isSuccessful) {
-                    throw IOException("Tải APK thất bại (HTTP ${response.code}).")
-                }
-                val body = response.body ?: throw IOException("Máy chủ không trả về dữ liệu APK.")
-                val totalBytes = body.contentLength().takeIf { it > 0L } ?: release.apkSizeBytes
-
-                val startMs = SystemClock.elapsedRealtime()
-                var lastEmitMs = 0L
-                var downloaded = 0L
-                val buffer = ByteArray(32 * 1024)
-
-                body.byteStream().use { input ->
-                    FileOutputStream(partFile).use { output ->
-                        while (true) {
-                            coroutineContext.ensureActive()
-                            val read = input.read(buffer)
-                            if (read == -1) break
-                            output.write(buffer, 0, read)
-                            downloaded += read
-
-                            val nowMs = SystemClock.elapsedRealtime()
-                            if (nowMs - lastEmitMs >= 100L || (totalBytes > 0L && downloaded >= totalBytes)) {
-                                val elapsedSec = ((nowMs - startMs).coerceAtLeast(1L)) / 1000.0
-                                val speed = (downloaded / elapsedSec).toLong()
-                                onProgress(downloaded, totalBytes, speed)
-                                lastEmitMs = nowMs
-                            }
-                        }
-                        output.flush()
-                    }
-                }
-            }
-
-            if (finalFile.exists()) finalFile.delete()
-            if (!partFile.renameTo(finalFile)) {
-                partFile.copyTo(finalFile, overwrite = true)
-                partFile.delete()
-            }
-            if (!finalFile.exists() || finalFile.length() == 0L) {
-                throw IOException("Tệp APK tải về không hợp lệ.")
-            }
-            finalFile
-        } catch (ce: CancellationException) {
-            runCatching { partFile.delete() }
-            throw ce
-        } catch (e: Exception) {
-            runCatching { partFile.delete() }
-            throw e
+    /**
+     * Google Play Policy compliant update handoff:
+     * Opens the official GitHub Release URL in the user's browser via standard Intent.ACTION_VIEW
+     * without requiring REQUEST_INSTALL_PACKAGES or downloading executables inside the app.
+     */
+    fun openReleaseInBrowser(context: Context, release: ReleaseUpdateInfo) {
+        val targetUrl = release.apkDownloadUrl ?: release.htmlUrl
+        if (!targetUrl.startsWith("https://", ignoreCase = true)) {
+            Toast.makeText(context, "Liên kết phát hành không hợp lệ.", Toast.LENGTH_SHORT).show()
+            return
         }
-    }
-
-    fun canInstallPackages(): Boolean {
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
-            context.packageManager.canRequestPackageInstalls()
-    }
-
-    fun launchApkInstaller(activityContext: Context, apkFile: File): InstallLaunchResult {
-        if (!apkFile.exists()) {
-            return InstallLaunchResult.Failed("Không tìm thấy tệp APK đã tải về.")
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            !activityContext.packageManager.canRequestPackageInstalls()
-        ) {
-            val permIntent = Intent(
-                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                Uri.parse("package:${activityContext.packageName}")
-            )
-            return InstallLaunchResult.NeedsPermission(permIntent)
-        }
-
-        return runCatching {
-            val contentUri = FileProvider.getUriForFile(
-                activityContext,
-                "${activityContext.packageName}.fileprovider",
-                apkFile
-            )
-            val installIntent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(contentUri, "application/vnd.android.package-archive")
+        runCatching {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl)).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            activityContext.startActivity(installIntent)
-            InstallLaunchResult.Launched
-        }.getOrElse { err ->
-            InstallLaunchResult.Failed(err.message ?: "Không thể mở trình cài đặt Android.")
+            context.startActivity(intent)
+        }.onFailure {
+            Toast.makeText(context, "Không tìm thấy trình duyệt để mở trang cập nhật.", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -365,6 +239,6 @@ class AppUpdateManager(private val context: Context) {
     }
 
     companion object {
-        private const val USER_AGENT = "CloudDropAndroid-Updater/1.0"
+        private const val USER_AGENT = "InCloudAndroid/1.0"
     }
 }

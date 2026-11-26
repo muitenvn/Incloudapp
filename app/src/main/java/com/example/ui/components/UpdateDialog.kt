@@ -16,20 +16,17 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.InstallMobile
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -37,8 +34,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -50,16 +45,13 @@ import com.example.ui.theme.JetBrainsMonoFamily
 import com.example.update.AppUpdateState
 import com.example.update.ReleaseUpdateInfo
 import com.example.util.FileMetadataResolver
-import java.io.File
 
 @Composable
 fun AppUpdateDialog(
     state: AppUpdateState,
     currentVersionLabel: String,
     onCheckLatest: () -> Unit,
-    onDownloadAndInstall: (ReleaseUpdateInfo) -> Unit,
-    onOpenInstaller: (File) -> Unit,
-    onCancelDownload: () -> Unit,
+    onOpenReleaseDownload: (ReleaseUpdateInfo) -> Unit,
     onDismiss: () -> Unit
 ) {
     val shouldShow = when (state) {
@@ -67,17 +59,13 @@ fun AppUpdateDialog(
         is AppUpdateState.Checking -> state.isManual
         is AppUpdateState.UpToDate -> state.isManual
         is AppUpdateState.UpdateAvailable -> state.showDialog
-        is AppUpdateState.Downloading -> true
-        is AppUpdateState.ReadyToInstall -> true
         is AppUpdateState.Error -> state.isManual
     }
 
     if (!shouldShow) return
 
     Dialog(
-        onDismissRequest = {
-            if (state !is AppUpdateState.Downloading) onDismiss()
-        },
+        onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Surface(
@@ -121,7 +109,7 @@ fun AppUpdateDialog(
                         Text(
                             text = when (state) {
                                 is AppUpdateState.UpToDate -> stringResource(R.string.update_up_to_date)
-                                is AppUpdateState.Error -> "Không thể cập nhật"
+                                is AppUpdateState.Error -> "Không thể kiểm tra cập nhật"
                                 is AppUpdateState.Checking -> stringResource(R.string.update_section_title)
                                 else -> stringResource(R.string.update_dialog_title)
                             },
@@ -130,16 +118,14 @@ fun AppUpdateDialog(
                         )
                     }
 
-                    if (state !is AppUpdateState.Downloading) {
-                        IconButton(
-                            onClick = onDismiss,
-                            modifier = Modifier.testTag("update_dialog_close")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Close,
-                                contentDescription = stringResource(R.string.action_close)
-                            )
-                        }
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.testTag("update_dialog_close")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = stringResource(R.string.action_close)
+                        )
                     }
                 }
 
@@ -202,16 +188,16 @@ fun AppUpdateDialog(
                         )
 
                         Button(
-                            onClick = { onDownloadAndInstall(state.release) },
+                            onClick = { onOpenReleaseDownload(state.release) },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(48.dp)
                                 .testTag("update_download_now_button"),
                             shape = MaterialTheme.shapes.small
                         ) {
-                            Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text(stringResource(R.string.update_download_and_install))
+                            Text(stringResource(R.string.update_open_release_page))
                         }
 
                         Row(
@@ -248,116 +234,6 @@ fun AppUpdateDialog(
                         }
                     }
 
-                    is AppUpdateState.Downloading -> {
-                        Text(
-                            text = "${stringResource(R.string.update_downloading)} (${state.release.tagName})",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-
-                        val progress = state.progress
-                        if (progress != null) {
-                            LinearProgressIndicator(
-                                progress = { progress },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(8.dp)
-                                    .clip(RoundedCornerShape(100.dp)),
-                                strokeCap = StrokeCap.Round
-                            )
-                        } else {
-                            LinearProgressIndicator(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(8.dp)
-                                    .clip(RoundedCornerShape(100.dp)),
-                                strokeCap = StrokeCap.Round
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            val left = if (state.totalBytes > 0L) {
-                                "${FileMetadataResolver.formatFileSize(state.bytesDownloaded)} / ${
-                                    FileMetadataResolver.formatFileSize(state.totalBytes)
-                                }"
-                            } else {
-                                FileMetadataResolver.formatFileSize(state.bytesDownloaded)
-                            }
-                            val speed = FileMetadataResolver.formatSpeed(state.bytesPerSecond)
-                            val pct = progress?.let { "${(it * 100).toInt()}%" }.orEmpty()
-                            val right = listOf(pct, speed).filter { it.isNotEmpty() }.joinToString(" · ")
-
-                            Text(
-                                text = left,
-                                style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMonoFamily),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = right,
-                                style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMonoFamily),
-                                color = MaterialTheme.colorScheme.secondary
-                            )
-                        }
-
-                        OutlinedButton(
-                            onClick = onCancelDownload,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp)
-                                .testTag("update_cancel_download_button")
-                        ) {
-                            Text(stringResource(R.string.action_close))
-                        }
-                    }
-
-                    is AppUpdateState.ReadyToInstall -> {
-                        Text(
-                            text = if (state.needsInstallPermission) {
-                                stringResource(R.string.update_permission_needed)
-                            } else {
-                                stringResource(R.string.update_ready_install)
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-
-                        Button(
-                            onClick = { onOpenInstaller(state.apkFile) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp)
-                                .testTag("update_open_installer_button")
-                        ) {
-                            Icon(
-                                imageVector = if (state.needsInstallPermission) {
-                                    Icons.Filled.Security
-                                } else {
-                                    Icons.Filled.InstallMobile
-                                },
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = if (state.needsInstallPermission) {
-                                    stringResource(R.string.update_open_permission_settings)
-                                } else {
-                                    stringResource(R.string.update_open_installer)
-                                }
-                            )
-                        }
-
-                        OutlinedButton(
-                            onClick = onDismiss,
-                            modifier = Modifier.fillMaxWidth().height(48.dp)
-                        ) {
-                            Text(stringResource(R.string.update_later))
-                        }
-                    }
-
                     is AppUpdateState.Error -> {
                         Text(
                             text = state.message,
@@ -369,10 +245,7 @@ fun AppUpdateDialog(
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Button(
-                                onClick = {
-                                    val rel = state.release
-                                    if (rel != null) onDownloadAndInstall(rel) else onCheckLatest()
-                                },
+                                onClick = onCheckLatest,
                                 modifier = Modifier.weight(1f).height(48.dp)
                             ) {
                                 Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))

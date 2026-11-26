@@ -2,12 +2,10 @@ package com.example
 
 import android.content.Intent
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -55,10 +53,9 @@ import com.example.ui.screens.CloudServicesScreen
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.UploadScreen
 import com.example.ui.theme.CloudDropTheme
-import com.example.update.InstallLaunchResult
+import com.example.update.ReleaseUpdateInfo
 import com.example.util.FileMetadataResolver
 import com.example.viewmodel.MainViewModel
-import java.io.File
 
 enum class MainTab(
     val labelRes: Int,
@@ -90,16 +87,6 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: MainViewModel by viewModels()
 
-    private val installPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        val pendingFile = viewModel.pendingInstallApk.value
-        if (pendingFile != null && viewModel.updateManager.canInstallPackages()) {
-            viewModel.markInstallPermissionGranted()
-            triggerApkInstaller(pendingFile)
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(
@@ -110,16 +97,19 @@ class MainActivity : ComponentActivity() {
         val isIncomingShare = intent?.action == Intent.ACTION_SEND ||
             intent?.action == Intent.ACTION_SEND_MULTIPLE
         handleIncomingShareIfPresent(intent)
-        // Only check updates when entering the main app directly (never during Share flows)
+
+        // Only auto-check updates when opening the main app directly (never during Share flows)
         if (!isIncomingShare) {
             viewModel.checkForUpdatesOnAppOpen()
         }
 
         setContent {
             CloudDropTheme(darkTheme = true) {
-                CloudDropAppShell(
+                InCloudAppShell(
                     viewModel = viewModel,
-                    onInstallApk = ::triggerApkInstaller
+                    onOpenReleaseDownload = { release ->
+                        viewModel.updateManager.openReleaseInBrowser(this, release)
+                    }
                 )
             }
         }
@@ -140,35 +130,13 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-
-    private fun triggerApkInstaller(apkFile: File) {
-        when (val result = viewModel.updateManager.launchApkInstaller(this, apkFile)) {
-            InstallLaunchResult.Launched -> {
-                viewModel.clearPendingInstallApk()
-            }
-
-            is InstallLaunchResult.NeedsPermission -> {
-                viewModel.markNeedsInstallPermission(apkFile)
-                Toast.makeText(
-                    this,
-                    getString(R.string.update_permission_needed),
-                    Toast.LENGTH_LONG
-                ).show()
-                installPermissionLauncher.launch(result.settingsIntent)
-            }
-
-            is InstallLaunchResult.Failed -> {
-                Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()
-            }
-        }
-    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CloudDropAppShell(
+private fun InCloudAppShell(
     viewModel: MainViewModel,
-    onInstallApk: (File) -> Unit
+    onOpenReleaseDownload: (ReleaseUpdateInfo) -> Unit
 ) {
     var activeTab by rememberSaveable { mutableStateOf(MainTab.UPLOAD) }
     var showQuickQrDialog by rememberSaveable { mutableStateOf(false) }
@@ -340,11 +308,7 @@ private fun CloudDropAppShell(
         state = updateState,
         currentVersionLabel = currentVersionLabel,
         onCheckLatest = { viewModel.checkForUpdates(manual = true) },
-        onDownloadAndInstall = { release ->
-            viewModel.downloadUpdate(release, onReadyToInstall = onInstallApk)
-        },
-        onOpenInstaller = onInstallApk,
-        onCancelDownload = viewModel::cancelUpdateDownload,
+        onOpenReleaseDownload = onOpenReleaseDownload,
         onDismiss = viewModel::dismissUpdateDialog
     )
 }

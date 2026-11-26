@@ -248,6 +248,278 @@ class CloudUploadEngine(private val context: Context) {
         }
     }
 
+    /**
+     * Uploads a group of multiple photos/videos/files so the ENTIRE group shares ONE single link
+     * and ONE single QR code:
+     * 1) Prefers GoFile Shared Folder (native cloud album — recipients see all images/files in one folder link).
+     * 2) Automatically falls back to bundling into a single fast ZIP archive uploaded through smart server selection
+     *    if GoFile is disabled, unavailable, or user explicitly chose another provider.
+     */
+    suspend fun uploadGroupAsSingleLink(
+        payloads: List<SharedFilePayload>,
+        retention: RetentionPreference,
+        overrideProviderId: CloudProviderId?,
+        prefs: CloudAppPreferences,
+        cachedHealth: Map<CloudProviderId, ProviderHealth>,
+        onHealthUpdated: (Map<CloudProviderId, ProviderHealth>) -> Unit,
+        onSelecting: () -> Unit,
+        onProgress: (UploadProgressUpdate) -> Unit
+    ): UploadedItemEntity = withContext(Dispatchers.IO) {
+        if (payloads.size <= 1) {
+            return@withContext uploadFileWithSmartSelection(
+                payload = payloads.first(),
+                retention = retention,
+                overrideProviderId = overrideProviderId,
+                prefs = prefs,
+                cachedHealth = cachedHealth,
+                onHealthUpdated = onHealthUpdated,
+                onSelecting = onSelecting,
+                onProgress = onProgress
+            )
+        }
+
+        if (!isNetworkAvailable()) {
+            throw IOException("Không có kết nối mạng. Vui lòng kiểm tra Wi-Fi hoặc 4G/5G.")
+        }
+
+        val stagedPairs = mutableListOf<Pair<SharedFilePayload, File>>()
+        var zipBundleFile: File? = null
+        try {
+            for (payload in payloads) {
+                val f = FileMetadataResolver.stageToCacheFile(context, payload)
+                stagedPairs.add(payload.copy(sizeBytes = f.length()) to f)
+            }
+            val totalGroupBytes = stagedPairs.sumOf { it.second.length() }
+            val groupBaseName = FileMetadataResolver.buildGroupDisplayName(payloads)
+            val allImages = payloads.all { it.isImage }
+            val displayGroupName = if (allImages) {
+                "Nhóm ${payloads.size} ảnh"
+            } else {
+                "Nhóm ${payloads.size} tệp"
+            }
+            val firstPreviewUri = payloads.firstOrNull { it.isImage }?.uri?.toString()
+                ?: payloads.firstOrNull()?.uri?.toString()
+
+            onSelecting()
+
+            val effectivePreferred = overrideProviderId ?: prefs.preferredProviderId
+            val canTryGoFileFolder = prefs.isProviderEnabled(CloudProviderId.GOFILE) &&
+                (effectivePreferred == null || effectivePreferred == CloudProviderId.GOFILE)
+
+            // Strategy 1: Native GoFile Shared Cloud Folder (1 single album link for all photos/files!)
+            if (canTryGoFileFolder) {
+                try {
+                    val goFileSpec = CloudProviderCatalog.byId(CloudProviderId.GOFILE)
+                    val goFileHealth = cachedHealth[CloudProviderId.GOFILE]
+                        ?: probeProvider(goFileSpec, prefs).also { h ->
+                            onHealthUpdated(cachedHealth + (CloudProviderId.GOFILE to h))
+                        }
+                    if (goFileHealth.isReachable != false) {
+                        val folderUrl = uploadGoFileSharedFolder(
+                            stagedPairs = stagedPairs,
+                            totalGroupBytes = totalGroupBytes,
+                            token = prefs.gofileToken
+                        ) { written, total, speed ->
+                            onProgress(
+                                UploadProgressUpdate(
+                                    provider = goFileSpec,
+                                    providerLatencyMs = goFileHealth.latencyMs,
+                                    bytesUploaded = written,
+                                    totalBytes = total,
+                                    bytesPerSecond = speed,
+                                    isFailover = false
+                                )
+                            )
+                        }
+                        return@withContext UploadedItemEntity(
+                            fileName = "$displayGroupName (${payloads.first().fileName} + ${payloads.size - 1})",
+                            mimeType = if (allImages) "image/*" else "application/octet-stream",
+                            sizeBytes = totalGroupBytes,
+                            downloadUrl = folderUrl,
+                            providerId = CloudProviderId.GOFILE.id,
+                            providerName = "${goFileSpec.displayName} (Thư mục)",
+                            retentionLabel = "Thư mục chung · ${payloads.size} tệp",
+                            measuredLatencyMs = goFileHealth.latencyMs,
+                            createdAtMillis = System.currentTimeMillis(),
+                            localPreviewUri = firstPreviewUri
+                        )
+                    }
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (_: Exception) {
+                    // Fall through to single ZIP bundle strategy across all compatible servers
+                }
+            }
+
+            // Strategy 2: Bundle all photos/files into ONE single ZIP archive -> upload to best compatible server
+            zipBundleFile = FileMetadataResolver.createZipBundle(context, stagedPairs, groupBaseName)
+            val zipSize = zipBundleFile.length()
+            val zipPayload = SharedFilePayload(
+                id = payloads.first().id,
+                uri = null,
+                fileName = "$groupBaseName.zip",
+                mimeType = "application/zip",
+                sizeBytes = zipSize
+            )
+
+            val compatible = CloudProviderCatalog.allProviders.filter { spec ->
+                isCompatible(spec, zipPayload, prefs)
+            }
+            if (compatible.isEmpty()) {
+                throw IllegalStateException(
+                    "Không có máy chủ nào hỗ trợ gói ${FileMetadataResolver.formatFileSize(zipSize)}."
+                )
+            }
+
+            val mergedHealth = cachedHealth.toMutableMap()
+            val now = System.currentTimeMillis()
+            val toProbe = compatible.filter { spec ->
+                val h = mergedHealth[spec.providerId]
+                h?.checkedAtMillis == null || (now - h.checkedAtMillis) > PROBE_TTL_MS
+            }
+            if (toProbe.isNotEmpty()) {
+                val fresh = coroutineScope {
+                    toProbe.map { spec ->
+                        async { spec.providerId to probeProvider(spec, prefs) }
+                    }.awaitAll().toMap()
+                }
+                mergedHealth.putAll(fresh)
+                onHealthUpdated(mergedHealth.toMap())
+            }
+
+            val ranked = rankProviders(
+                candidates = compatible,
+                payload = zipPayload,
+                retention = retention,
+                preferredId = effectivePreferred,
+                prefs = prefs,
+                healthMap = mergedHealth
+            )
+
+            val errors = mutableListOf<String>()
+            ranked.forEachIndexed { index, spec ->
+                val health = mergedHealth[spec.providerId]
+                try {
+                    val resultUrl = uploadToSpecificProvider(
+                        spec = spec,
+                        file = zipBundleFile,
+                        payload = zipPayload,
+                        retention = retention,
+                        prefs = prefs
+                    ) { written, total, speed ->
+                        onProgress(
+                            UploadProgressUpdate(
+                                provider = spec,
+                                providerLatencyMs = health?.latencyMs,
+                                bytesUploaded = written,
+                                totalBytes = total,
+                                bytesPerSecond = speed,
+                                isFailover = index > 0 || canTryGoFileFolder
+                            )
+                        )
+                    }
+                    return@withContext UploadedItemEntity(
+                        fileName = "$displayGroupName ($groupBaseName.zip)",
+                        mimeType = "application/zip",
+                        sizeBytes = zipSize,
+                        downloadUrl = resultUrl,
+                        providerId = spec.providerId.id,
+                        providerName = spec.displayName,
+                        retentionLabel = "${resolveRetentionLabel(spec.providerId, retention)} · ${payloads.size} tệp",
+                        measuredLatencyMs = health?.latencyMs,
+                        createdAtMillis = System.currentTimeMillis(),
+                        localPreviewUri = firstPreviewUri
+                    )
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (e: Exception) {
+                    errors.add("${spec.displayName}: ${e.message ?: "Lỗi kết nối"}")
+                }
+            }
+
+            throw IOException(
+                "Không thể tải nhóm ${payloads.size} tệp lên máy chủ.\n${errors.take(2).joinToString("\n")}"
+            )
+        } finally {
+            stagedPairs.forEach { FileMetadataResolver.cleanupStagedFile(it.second) }
+            FileMetadataResolver.cleanupStagedFile(zipBundleFile)
+        }
+    }
+
+    private suspend fun uploadGoFileSharedFolder(
+        stagedPairs: List<Pair<SharedFilePayload, File>>,
+        totalGroupBytes: Long,
+        token: String,
+        onProgress: (Long, Long, Long) -> Unit
+    ): String {
+        val serverRequest = Request.Builder()
+            .url("https://api.gofile.io/servers")
+            .header("User-Agent", USER_AGENT)
+            .get()
+            .build()
+
+        val serverName = probeClient.newCall(serverRequest).await().use { response ->
+            val raw = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw IOException("Không lấy được máy chủ GoFile (${response.code})")
+            val servers = JSONObject(raw).optJSONObject("data")?.optJSONArray("servers")
+            if (servers == null || servers.length() == 0) {
+                throw IOException("Không có máy chủ GoFile khả dụng.")
+            }
+            servers.getJSONObject(0).getString("name")
+        }
+
+        var sharedFolderId: String? = null
+        var sessionToken: String = token.trim()
+        var downloadPageUrl = ""
+        var completedBytesBeforeCurrent = 0L
+
+        for ((index, pair) in stagedPairs.withIndex()) {
+            val (payload, file) = pair
+            val mediaType = payload.mimeType.toMediaTypeOrNull() ?: "application/octet-stream".toMediaTypeOrNull()
+            val progressBody = ProgressRequestBody(file, mediaType) { written, _, speed ->
+                onProgress(completedBytesBeforeCurrent + written, totalGroupBytes, speed)
+            }
+
+            val multipartBuilder = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("file", payload.fileName, progressBody)
+
+            if (!sharedFolderId.isNullOrBlank()) {
+                multipartBuilder.addFormDataPart("folderId", sharedFolderId)
+            }
+
+            val reqBuilder = Request.Builder()
+                .url("https://$serverName.gofile.io/contents/uploadfile")
+                .header("User-Agent", USER_AGENT)
+                .post(multipartBuilder.build())
+
+            if (sessionToken.isNotBlank()) {
+                reqBuilder.header("Authorization", "Bearer $sessionToken")
+            }
+
+            uploadClient.newCall(reqBuilder.build()).await().use { response ->
+                val raw = response.body?.string().orEmpty()
+                if (!response.isSuccessful) throw IOException("GoFile HTTP ${response.code}")
+                val data = JSONObject(raw).optJSONObject("data")
+                    ?: throw IOException("GoFile không trả dữ liệu thư mục.")
+
+                if (index == 0) {
+                    downloadPageUrl = data.optString("downloadPage").trim()
+                    sharedFolderId = data.optString("parentFolder").trim()
+                    if (sessionToken.isBlank()) {
+                        sessionToken = data.optString("guestToken").trim()
+                    }
+                    if (!downloadPageUrl.startsWith("https://") || sharedFolderId.isNullOrBlank() || sessionToken.isBlank()) {
+                        throw IOException("GoFile không hỗ trợ tạo thư mục nhóm cho phiên này.")
+                    }
+                }
+            }
+            completedBytesBeforeCurrent += file.length()
+        }
+
+        return downloadPageUrl
+    }
+
     private fun isCompatible(
         spec: CloudProviderSpec,
         payload: SharedFilePayload,
@@ -604,7 +876,7 @@ class CloudUploadEngine(private val context: Context) {
     }
 
     companion object {
-        private const val USER_AGENT = "CloudDropAndroid/1.0"
+        private const val USER_AGENT = "InCloudAndroid/1.0"
         private const val PROBE_TTL_MS = 60_000L
     }
 }

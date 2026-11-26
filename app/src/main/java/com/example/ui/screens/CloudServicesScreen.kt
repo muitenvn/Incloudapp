@@ -249,8 +249,6 @@ private fun AppUpdateSettingsCard(
         is AppUpdateState.UpdateAvailable -> "Có bản mới ${updateState.release.tagName}"
         is AppUpdateState.UpToDate -> stringResource(R.string.update_up_to_date)
         is AppUpdateState.Checking -> stringResource(R.string.update_checking)
-        is AppUpdateState.Downloading -> stringResource(R.string.update_downloading)
-        is AppUpdateState.ReadyToInstall -> "Đã tải xong bản mới"
         else -> "Phiên bản $currentVersionLabel"
     }
 
